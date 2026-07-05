@@ -234,7 +234,16 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
             'generationConfig': {
                 'temperature':    0.1,
                 'maxOutputTokens': 8192,
-                'response_mime_type': 'application/json',
+                'responseMimeType': 'application/json',
+                'responseSchema': {
+                    'type': 'OBJECT',
+                    'properties': {
+                        'transcripcion': {'type': 'STRING'},
+                        'resumen': {'type': 'STRING'},
+                        'resultado_final': {'type': 'STRING'},
+                    },
+                    'required': ['transcripcion', 'resumen', 'resultado_final']
+                }
             },
         }
 
