@@ -1,0 +1,82 @@
+name: 🚀 Deploy resumen-reuniones-ia → VPS DigitalOcean
+
+# ════════════════════════════════════════════════════════════
+#  PRIMER DEPLOY (ejecutar solo 1 vez via SSH):
+#    ssh root@<VPS_IP>
+#    mkdir -p /opt/resumen-reuniones-ia
+#    # Hacer el primer push a main para que GitHub Actions sincronice
+#    cd /opt/resumen-reuniones-ia
+#    bash install/setup_vps.sh
+#    bash install/setup.sh
+#
+#  Secrets requeridos en GitHub (Settings → Secrets → Actions):
+#    DO_HOST     = 198.211.97.243
+#    DO_USER     = root
+#    DO_SSH_KEY  = (contenido de la llave privada SSH id_ed25519)
+#    DO_PATH     = /opt/resumen-reuniones-ia
+#
+#  Después del primer setup: solo push a main. Cero SSH para código.
+# ════════════════════════════════════════════════════════════
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+
+    - name: 🔑 Configurar SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.DO_SSH_KEY }}
+
+    - name: 📤 Deploy código → VPS
+      run: |
+        rsync -avz \
+          --exclude='.git/' \
+          --exclude='.github/' \
+          --exclude='.scripts/' \
+          --exclude='.gitignore' \
+          --exclude='venv/' \
+          --exclude='__pycache__/' \
+          --exclude='*.pyc' \
+          --exclude='.env' \
+          --exclude='audio/' \
+          -e "ssh -o StrictHostKeyChecking=no" \
+          ./ \
+          ${{ secrets.DO_USER }}@${{ secrets.DO_HOST }}:${{ secrets.DO_PATH }}/
+
+    - name: 🔄 Actualizar dependencias y reiniciar servicio
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.DO_USER }}@${{ secrets.DO_HOST }} << 'EOF'
+          set -e
+          cd ${{ secrets.DO_PATH }}
+
+          # Actualizar dependencias Python en el venv
+          venv/bin/pip install -r requirements.txt --quiet
+
+          # Recargar systemd si el service file cambió
+          cp install/systemd/resumen-reuniones-ia.service /etc/systemd/system/resumen-reuniones-ia.service
+          systemctl daemon-reload
+
+          # Reiniciar servicio
+          systemctl restart resumen-reuniones-ia
+          sleep 2
+
+          # Mostrar estado
+          echo "--- Estado del servicio ---"
+          systemctl status resumen-reuniones-ia --no-pager -l || true
+        EOF
+
+    - name: ✅ Deploy completado
+      run: |
+        echo "✅ resumen-reuniones-ia desplegado correctamente"
+        echo "📁 Ruta VPS: ${{ secrets.DO_PATH }}"
+        echo "🌐 VPS: ${{ secrets.DO_HOST }}"
+        echo "🌐 URL: https://reuniones.batidospitaya.com"
+        echo "📊 Ver logs: journalctl -u resumen-reuniones-ia -f"

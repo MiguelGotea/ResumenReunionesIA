@@ -1,0 +1,32 @@
+[Unit]
+Description=Resumen Reuniones IA — FastAPI (grabación + Gemini)
+Documentation=https://github.com/tu-org/resumen-reuniones-ia
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/resumen-reuniones-ia
+
+# Activar el venv e iniciar uvicorn
+ExecStart=/opt/resumen-reuniones-ia/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8888
+
+# Reiniciar siempre si cae (delay de 10s para no sobrecargar)
+Restart=always
+RestartSec=10
+
+# Variables de entorno desde el .env del proyecto
+EnvironmentFile=/opt/resumen-reuniones-ia/.env
+
+# Logging (journald captura stdout/stderr)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=resumen-reuniones-ia
+
+# Límites de seguridad
+LimitNOFILE=4096
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

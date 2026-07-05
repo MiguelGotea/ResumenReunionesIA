@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grabación de Reunión — Batidos Pitaya</title>
+    <meta name="description" content="Herramienta de grabación de reuniones corporativas con resumen por IA">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+
+    <!-- Hero header -->
+    <div class="page-header">
+        <div class="brand">
+            <div class="brand-icon">
+                <i class="bi bi-mic-fill"></i>
+            </div>
+            <div>
+                <h1 class="brand-name">Batidos Pitaya</h1>
+                <p class="brand-sub">Sistema de Reuniones con IA</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenido principal -->
+    <div class="main-wrapper">
+
+        <!-- Estado: sin token -->
+        <div id="estadoSinToken" class="estado-card estado-error d-none">
+            <div class="estado-icon">
+                <i class="bi bi-shield-x"></i>
+            </div>
+            <h2>Acceso no válido</h2>
+            <p>No se proporcionó un token de reunión o el formato es incorrecto.<br>
+               Genera un nuevo acceso desde el ERP.</p>
+        </div>
+
+        <!-- Estado: error de API -->
+        <div id="estadoError" class="estado-card estado-error d-none">
+            <div class="estado-icon">
+                <i class="bi bi-exclamation-triangle"></i>
+            </div>
+            <h2 id="errorTitulo">Error</h2>
+            <p id="errorMensaje"></p>
+        </div>
+
+        <!-- Estado: cargando -->
+        <div id="estadoCargando" class="estado-card">
+            <div class="spinner-pitaya">
+                <div class="spinner-inner"></div>
+            </div>
+            <h2>Verificando acceso…</h2>
+            <p>Validando el token de la reunión.</p>
+        </div>
+
+        <!-- Estado: finalizada/procesando/completada/cerrada -->
+        <div id="estadoFinalizado" class="estado-card estado-info d-none">
+            <div class="estado-icon">
+                <i class="bi bi-check-circle" id="iconFinalizado"></i>
+            </div>
+            <h2 id="tituloFinalizado">Procesando…</h2>
+            <p id="mensajeFinalizado"></p>
+        </div>
+
+        <!-- Panel de grabación -->
+        <div id="panelGrabacion" class="grabacion-card d-none">
+
+            <!-- Info de la reunión -->
+            <div class="reunion-info">
+                <div class="reunion-badge">
+                    <i class="bi bi-camera-video"></i> Reunión en curso
+                </div>
+                <h2 id="reunionTitulo" class="reunion-titulo">—</h2>
+                <p id="reunionDescripcion" class="reunion-descripcion text-muted"></p>
+            </div>
+
+            <!-- Indicador de estado -->
+            <div class="status-bar" id="statusBar">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Listo para iniciar</span>
+                <span id="statusTimer" class="status-timer">00:00:00</span>
+            </div>
+
+            <!-- Indicador de chunks -->
+            <div class="chunks-info d-none" id="chunksInfo">
+                <i class="bi bi-hdd"></i>
+                <span id="chunksText">0 fragmentos guardados</span>
+            </div>
+
+            <!-- Botones de control -->
+            <div class="controles">
+                <button id="btnEmpezar"  class="btn-control btn-empezar"  onclick="accionEmpezar()">
+                    <i class="bi bi-play-circle-fill"></i>
+                    <span>Empezar</span>
+                </button>
+                <button id="btnPausa"    class="btn-control btn-pausa d-none"   onclick="accionPausa()">
+                    <i class="bi bi-pause-circle-fill"></i>
+                    <span>Pausar</span>
+                </button>
+                <button id="btnReanudar" class="btn-control btn-reanudar d-none" onclick="accionReanudar()">
+                    <i class="bi bi-play-fill"></i>
+                    <span>Reanudar</span>
+                </button>
+                <button id="btnFinalizar" class="btn-control btn-finalizar d-none" onclick="accionFinalizar()">
+                    <i class="bi bi-stop-circle-fill"></i>
+                    <span>Finalizar</span>
+                </button>
+            </div>
+
+            <!-- Log de actividad -->
+            <div class="activity-log">
+                <div class="activity-log-header">
+                    <i class="bi bi-terminal"></i> Registro de actividad
+                </div>
+                <div id="activityLog" class="activity-entries"></div>
+            </div>
+        </div>
+
+    </div><!-- /main-wrapper -->
+
+    <script src="grabacion.js"></script>
+</body>
+</html>
