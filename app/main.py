@@ -80,6 +80,44 @@ async def _procesar_reunion_background(token: str, reunion_data: dict, audio_pat
         # en una futura versión se puede agregar un endpoint de reintento
 
 
+async def _reprocesar_reunion_background(token: str, reunion_data: dict):
+    """
+    Tarea de fondo para re-procesar una reunión que ya falló o se requiere extraer nuevamente.
+    """
+    reunion_id = reunion_data['reunion_id']
+
+    try:
+        # Estado a procesando
+        log.info(f"[reunion {reunion_id}] Iniciando RE-procesamiento IA...")
+        await asyncio.to_thread(api_client.actualizar_estado, token, 'procesando')
+
+        # Verificamos si existe el final.webm, si no, intentamos concatenar si hay fragmentos
+        final_path = audio_module.get_audio_path(reunion_id)
+        if not final_path:
+            log.warning(f"[reunion {reunion_id}] final.webm no existe. Intentando re-concatenar fragmentos...")
+            final_path = await asyncio.to_thread(audio_module.concatenate_fragments, reunion_id)
+
+        # Obtener key de Gemini
+        gemini_key_info = await asyncio.to_thread(api_client.get_gemini_key)
+
+        # Generar resumen con Gemini
+        log.info(f"[reunion {reunion_id}] Enviando audio a Gemini ({gemini_key_info['modelo']}) para RE-procesar...")
+        resultado = await asyncio.to_thread(
+            gemini_client.generate_summary,
+            final_path,
+            reunion_data,
+            gemini_key_info,
+        )
+
+        # Guardar resultado en BD
+        ruta_audio = str(final_path)
+        await asyncio.to_thread(api_client.guardar_resultado, token, resultado, ruta_audio)
+        log.info(f"[reunion {reunion_id}] ✅ RE-procesamiento guardado. Estado → completada")
+
+    except Exception as e:
+        log.error(f"[reunion {reunion_id}] ❌ Error en RE-procesamiento: {e}")
+
+
 # ── Endpoints API ─────────────────────────────────────────────
 
 @app.get("/api/info/{token}")
@@ -201,6 +239,45 @@ async def finalizar_reunion(token: str, background_tasks: BackgroundTasks):
     return JSONResponse({
         "success": True,
         "message": "Grabación finalizada. El resumen se está procesando y estará disponible en el ERP en breve.",
+        "reunion_id": reunion_id,
+    })
+
+
+@app.post("/api/reprocesar/{token}")
+async def reprocesar_reunion(
+    token: str,
+    background_tasks: BackgroundTasks,
+    x_resumen_token: str = Header(None, alias="X-Resumen-Token"),
+):
+    """
+    Fuerza el reprocesamiento del audio con Gemini.
+    Llamado desde el ERP.
+    """
+    if not x_resumen_token or x_resumen_token != config.RESUMEN_TOKEN_ERP:
+        raise HTTPException(status_code=401, detail="Token no autorizado")
+
+    reunion_data = validar_token(token)
+    reunion_id   = reunion_data['reunion_id']
+    estado       = reunion_data['estado']
+
+    if estado == 'cerrada' or reunion_data.get('audio_borrado') == 1:
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede reprocesar: la reunión está cerrada o el audio ya fue borrado."
+        )
+
+    # Lanzar reprocesamiento en background
+    background_tasks.add_task(
+        _reprocesar_reunion_background,
+        token,
+        reunion_data,
+    )
+
+    log.info(f"[reunion {reunion_id}] Reprocesamiento forzado iniciado en background.")
+
+    return JSONResponse({
+        "success": True,
+        "message": "Reprocesamiento IA iniciado.",
         "reunion_id": reunion_id,
     })
 
