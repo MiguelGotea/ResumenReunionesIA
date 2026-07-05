@@ -41,27 +41,13 @@ Contexto de la reunión:
 - Descripción: {descripcion}
 
 Tu tarea tiene TRES partes, y debes devolver el resultado obligatoriamente como un \
-único OBJETO JSON válido con tres claves exactas: "transcripcion", "resumen" y "resultado_final".
+único OBJETO JSON válido con tres claves exactas: "resultado_final", "resumen" y "transcripcion", \
+ESTRICTAMENTE EN ESE ORDEN.
 
 ─────────────────────────────────────────────────────
-CLAVE 1: "transcripcion"
+CLAVE 1: "resultado_final"
 ─────────────────────────────────────────────────────
-Transcribe palabra por palabra todo lo que se dijo en el audio. Incluye el nombre del hablante \
-si se identifica (ej: "Juan: texto..."). Si hay varios hablantes no identificados, usa \
-"Hablante 1", "Hablante 2", etc.
-Si hay partes inaudibles, escribe [inaudible]. Si el audio está en silencio o vacío, escribe \
-"[Sin contenido de voz detectado en el audio]".
-
-─────────────────────────────────────────────────────
-CLAVE 2: "resumen"
-─────────────────────────────────────────────────────
-Un resumen general de toda la reunión, documentando todo lo que se habló sin ningún enfoque \
-corporativo específico. Solo un resumen general de la discusión.
-
-─────────────────────────────────────────────────────
-CLAVE 3: "resultado_final"
-─────────────────────────────────────────────────────
-Basándote en la transcripción, genera un resumen ejecutivo corporativo en formato Markdown \
+Basándote en el audio, genera un resumen ejecutivo corporativo en formato Markdown \
 usando EXACTAMENTE estos encabezados (No incluyas el texto de la transcripción aquí):
   ## Decisiones Tomadas
   ## Tareas Asignadas
@@ -74,14 +60,29 @@ Si alguna sección no aplica, indícalo (ej: "No se identificaron tareas especí
 Usa texto limpio, profesional. NO inventes información que no esté en el audio.
 
 ─────────────────────────────────────────────────────
+CLAVE 2: "resumen"
+─────────────────────────────────────────────────────
+Un resumen general de toda la reunión, documentando todo lo que se habló sin ningún enfoque \
+corporativo específico. Solo un resumen general de la discusión.
+
+─────────────────────────────────────────────────────
+CLAVE 3: "transcripcion"
+─────────────────────────────────────────────────────
+Transcribe palabra por palabra todo lo que se dijo en el audio. Incluye el nombre del hablante \
+si se identifica (ej: "Juan: texto..."). Si hay varios hablantes no identificados, usa \
+"Hablante 1", "Hablante 2", etc.
+Si hay partes inaudibles, escribe [inaudible]. Si el audio está en silencio o vacío, escribe \
+"[Sin contenido de voz detectado en el audio]".
+
+─────────────────────────────────────────────────────
 FORMATO DE RESPUESTA (OBLIGATORIO):
 ─────────────────────────────────────────────────────
 Devuelve ÚNICAMENTE un string JSON válido, sin delimitadores de markdown (```json ... ```).
 Ejemplo:
 {{
-  "transcripcion": "...",
+  "resultado_final": "## Decisiones Tomadas...",
   "resumen": "...",
-  "resultado_final": "## Decisiones Tomadas..."
+  "transcripcion": "..."
 }}
 """
 
@@ -262,12 +263,47 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
             import json
             resultado = json.loads(texto)
         except json.JSONDecodeError:
-            log.error(f"Error parsing Gemini JSON output: {texto[:200]}...")
-            resultado = {
-                "transcripcion": "Error: La respuesta no es un JSON válido.",
-                "resumen": "",
-                "resultado_final": texto
-            }
+            log.error(f"Error parsing Gemini JSON output. Longitud del output: {len(texto)} caracteres.")
+            
+            # Intento de recuperación manual del JSON truncado por el límite de tokens
+            import re
+            
+            def extraer_campo(campo, texto_completo, es_ultimo=False):
+                # Busca el campo asumiendo que su valor es un string
+                # Si es el último campo, el cierre de comillas puede faltar si se truncó
+                patron = f'"{campo}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)'
+                if not es_ultimo:
+                    patron += '"'
+                    
+                match = re.search(patron, texto_completo)
+                if match:
+                    val = match.group(1)
+                    # Si el string terminó abruptamente con un \, lo quitamos
+                    if val.endswith('\\'):
+                        val = val[:-1]
+                    # Reemplazamos secuencias de escape básicas
+                    val = val.replace('\\n', '\n').replace('\\"', '"').replace('\\t', '\t')
+                    return val
+                return ""
+
+            rf_val = extraer_campo("resultado_final", texto)
+            res_val = extraer_campo("resumen", texto)
+            tr_val = extraer_campo("transcripcion", texto, es_ultimo=True)
+            
+            if rf_val or res_val or tr_val:
+                log.info("Se lograron recuperar los campos del JSON truncado.")
+                resultado = {
+                    "resultado_final": rf_val or "No se pudo generar.",
+                    "resumen": res_val or "No se pudo generar.",
+                    "transcripcion": tr_val + "\n\n[Nota: La transcripción se cortó automáticamente por el límite de procesamiento de la IA para reuniones largas.]"
+                }
+            else:
+                log.warning("No se pudieron extraer los campos con regex. Fallback a texto crudo.")
+                resultado = {
+                    "transcripcion": "Error: La respuesta no pudo ser procesada correctamente por longitud excesiva.",
+                    "resumen": "",
+                    "resultado_final": texto
+                }
 
         log.info(f"✅ Resumen generado y validado como JSON.")
         return resultado
