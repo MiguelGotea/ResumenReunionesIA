@@ -40,21 +40,54 @@ Contexto de la reunión:
 - Título: {titulo}
 - Descripción: {descripcion}
 
-Tu tarea es generar un resumen ejecutivo profesional y completo en español.
+Tu tarea tiene DOS partes:
 
-IMPORTANTE:
-- Organiza el resumen usando EXACTAMENTE estos encabezados Markdown:
+─────────────────────────────────────────────────────
+PARTE 1 — TRANSCRIPCIÓN LITERAL
+─────────────────────────────────────────────────────
+Transcribe palabra por palabra todo lo que se dijo en el audio. Incluye el nombre del hablante \
+si se identifica (ej: "Juan: texto..."). Si hay varios hablantes no identificados, usa \
+"Hablante 1", "Hablante 2", etc.
+Si hay partes inaudibles, escribe [inaudible]. Si el audio está en silencio o vacío, escribe \
+"[Sin contenido de voz detectado en el audio]".
+
+─────────────────────────────────────────────────────
+PARTE 2 — RESUMEN EJECUTIVO
+─────────────────────────────────────────────────────
+Basándote en la transcripción anterior, genera un resumen ejecutivo usando EXACTAMENTE estos \
+encabezados Markdown:
   ## Decisiones Tomadas
   ## Tareas Asignadas
   ## Acuerdos y Compromisos
   ## Puntos de Seguimiento
-- En "Tareas Asignadas", indica el responsable si se menciona en el audio.
-- En "Puntos de Seguimiento", incluye: fechas límite, riesgos mencionados, y pendientes para la próxima reunión.
-- Si alguna sección no tiene contenido relevante, indícalo brevemente (ej: "No se identificaron tareas específicas.")
-- Usa texto limpio, profesional y en párrafos o listas según corresponda.
-- NO inventes información que no esté en el audio.
-- NO uses tablas complejas ni JSON.
-- La respuesta debe ser SOLO el resumen en Markdown, sin texto introductorio ni conclusivo.\
+
+En "Tareas Asignadas", indica el responsable si se menciona.
+En "Puntos de Seguimiento", incluye fechas límite, riesgos y pendientes.
+Si alguna sección no aplica, indícalo (ej: "No se identificaron tareas específicas.").
+Usa texto limpio, profesional. NO inventes información que no esté en el audio.
+
+─────────────────────────────────────────────────────
+FORMATO DE RESPUESTA (OBLIGATORIO):
+─────────────────────────────────────────────────────
+Responde ÚNICAMENTE con el siguiente Markdown, sin texto introductorio ni conclusivo:
+
+## Transcripción
+
+[transcripción literal aquí]
+
+---
+
+## Decisiones Tomadas
+[contenido]
+
+## Tareas Asignadas
+[contenido]
+
+## Acuerdos y Compromisos
+[contenido]
+
+## Puntos de Seguimiento
+[contenido]\
 """
 
 
