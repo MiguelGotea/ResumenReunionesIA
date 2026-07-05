@@ -18,7 +18,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 from . import api_client, audio as audio_module, gemini_client
 from . import config
@@ -228,6 +228,28 @@ async def borrar_audio(
         "mensaje":   "Audio eliminado" if borrado else "La carpeta de audio no existía (ya fue eliminada)",
     })
 
+
+@app.get("/api/audio_descarga/{token}")
+async def descargar_audio(token: str):
+    """
+    Exporta el audio de final.webm para que se pueda escuchar/descargar
+    por el usuario desde el ERP.
+    """
+    reunion_data = validar_token(token)
+    reunion_id   = reunion_data['reunion_id']
+    
+    audio_path = audio_module.get_audio_path(reunion_id)
+    if not audio_path:
+        raise HTTPException(
+            status_code=404, 
+            detail="Audio no encontrado o ya fue borrado."
+        )
+        
+    return FileResponse(
+        audio_path, 
+        media_type="audio/webm", 
+        filename=f"reunion_{reunion_id}.webm"
+    )
 
 @app.get("/health")
 async def health():
