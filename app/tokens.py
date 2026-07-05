@@ -15,7 +15,7 @@ def validar_token(token: str) -> dict:
     Retorna los datos de la reunión si es válido.
     Lanza HTTPException si es inválido, expirado o cerrado.
     """
-    if not token or len(token) != 48:
+    if not token or len(token) < 20:
         raise HTTPException(status_code=422, detail="Token de reunión inválido (formato incorrecto)")
 
     try:

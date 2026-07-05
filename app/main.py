@@ -154,8 +154,13 @@ async def actualizar_estado(token: str, body: dict):
             detail=f"Estado inválido: '{nuevo_estado}'. Solo se acepta 'grabando' o 'pausada'."
         )
 
+    # Idempotente: si ya está en ese estado, retornar éxito sin llamar a la API
+    if reunion_data.get('estado') == nuevo_estado:
+        return JSONResponse({"success": True, "estado": nuevo_estado,
+                             "reunion_id": reunion_data['reunion_id'], "idempotent": True})
+
     try:
-        resultado = api_client.actualizar_estado(token, nuevo_estado)
+        api_client.actualizar_estado(token, nuevo_estado)
         return JSONResponse({"success": True, "estado": nuevo_estado, "reunion_id": reunion_data['reunion_id']})
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -171,7 +176,7 @@ async def finalizar_reunion(token: str, background_tasks: BackgroundTasks):
     reunion_id   = reunion_data['reunion_id']
     estado       = reunion_data['estado']
 
-    if estado not in ('grabando', 'pausada'):
+    if estado not in ('creada', 'grabando', 'pausada'):
         raise HTTPException(
             status_code=409,
             detail=f"No se puede finalizar: la reunión está en estado '{estado}'"
