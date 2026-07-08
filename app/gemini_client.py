@@ -235,7 +235,15 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
             'generationConfig': {
                 'temperature':    0.1,
                 'maxOutputTokens': 8192,
-                'responseMimeType': 'application/json'
+                'responseMimeType': 'application/json',
+                'responseSchema': {
+                    'type': 'OBJECT',
+                    'properties': {
+                        'resumen': {'type': 'STRING'},
+                        'resultado_final': {'type': 'STRING'},
+                    },
+                    'required': ['resumen', 'resultado_final']
+                }
             },
         }
 
@@ -250,19 +258,9 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
         content = resp.json()
         texto   = content['candidates'][0]['content']['parts'][0]['text']
 
-        # Limpiar backticks si el modelo los incluyó (ej: ```json ... ```)
-        texto_limpio = texto.strip()
-        if texto_limpio.startswith('```json'):
-            texto_limpio = texto_limpio[7:]
-        elif texto_limpio.startswith('```'):
-            texto_limpio = texto_limpio[3:]
-        if texto_limpio.endswith('```'):
-            texto_limpio = texto_limpio[:-3]
-        texto_limpio = texto_limpio.strip()
-
         try:
             import json
-            resultado = json.loads(texto_limpio, strict=False)
+            resultado = json.loads(texto)
         except json.JSONDecodeError:
             log.error(f"Error parsing Gemini JSON output. Longitud del output: {len(texto)} caracteres.")
             
@@ -287,8 +285,8 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
                     return val
                 return ""
 
-            rf_val = extraer_campo("resultado_final", texto_limpio)
-            res_val = extraer_campo("resumen", texto_limpio, es_ultimo=True)
+            rf_val = extraer_campo("resultado_final", texto)
+            res_val = extraer_campo("resumen", texto, es_ultimo=True)
             
             if rf_val or res_val:
                 log.info("Se lograron recuperar los campos del JSON truncado.")
@@ -302,7 +300,7 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
                 resultado = {
                     "transcripcion": "",
                     "resumen": "",
-                    "resultado_final": texto_limpio
+                    "resultado_final": texto
                 }
 
         log.info(f"✅ Resumen generado y validado como JSON.")
