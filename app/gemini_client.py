@@ -40,11 +40,11 @@ Contexto de la reunión:
 - Título: {titulo}
 - Descripción: {descripcion}
 
-Tu tarea tiene DOS partes, y debes devolver el resultado obligatoriamente como un \
-único OBJETO JSON válido con dos claves exactas: "resultado_final" y "resumen".
+Tu tarea tiene DOS partes, y debes devolver el resultado obligatoriamente usando exactamente \
+estas dos etiquetas delimitadoras: <RESULTADO_FINAL> y <RESUMEN>.
 
 ─────────────────────────────────────────────────────
-CLAVE 1: "resultado_final"
+ETIQUETA 1: <RESULTADO_FINAL>
 ─────────────────────────────────────────────────────
 Basándote en el audio, genera un resumen ejecutivo corporativo en formato Markdown \
 usando EXACTAMENTE estos encabezados:
@@ -59,7 +59,7 @@ Si alguna sección no aplica, indícalo (ej: "No se identificaron tareas especí
 Usa texto limpio, profesional. NO inventes información que no esté en el audio.
 
 ─────────────────────────────────────────────────────
-CLAVE 2: "resumen"
+ETIQUETA 2: <RESUMEN>
 ─────────────────────────────────────────────────────
 Un resumen general de toda la reunión, documentando todo lo que se habló sin ningún enfoque \
 corporativo específico. Solo un resumen general de la discusión.
@@ -67,12 +67,14 @@ corporativo específico. Solo un resumen general de la discusión.
 ─────────────────────────────────────────────────────
 FORMATO DE RESPUESTA (OBLIGATORIO):
 ─────────────────────────────────────────────────────
-Devuelve ÚNICAMENTE un string JSON válido, sin delimitadores de markdown (```json ... ```).
+Devuelve ÚNICAMENTE las dos etiquetas con su contenido, nada más. No uses bloques de código (```).
 Ejemplo:
-{{
-  "resultado_final": "## Decisiones Tomadas...",
-  "resumen": "..."
-}}
+<RESULTADO_FINAL>
+## Decisiones Tomadas...
+</RESULTADO_FINAL>
+<RESUMEN>
+La reunión se centró en...
+</RESUMEN>
 """
 
 _TRANSCRIPTION_PROMPT_TEMPLATE = """\
@@ -235,7 +237,6 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
             'generationConfig': {
                 'temperature':    0.1,
                 'maxOutputTokens': 8192,
-                'responseMimeType': 'application/json'
             },
         }
 
@@ -250,51 +251,40 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
         content = resp.json()
         texto   = content['candidates'][0]['content']['parts'][0]['text']
 
-        try:
-            import json
-            resultado = json.loads(texto)
-        except json.JSONDecodeError:
-            log.error(f"Error parsing Gemini JSON output. Longitud del output: {len(texto)} caracteres.")
-            
-            # Intento de recuperación manual del JSON truncado por el límite de tokens
-            import re
-            
-            def extraer_campo(campo, texto_completo):
-                # Busca el campo asumiendo que su valor es un string
-                # [^"\\]* siempre se detiene en la comilla de cierre o al final si se truncó
-                patron = f'"{campo}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)'
-                match = re.search(patron, texto_completo)
-                if match:
-                    val = match.group(1)
-                    # Si el string terminó abruptamente con un \, lo quitamos
-                    if val.endswith('\\'):
-                        val = val[:-1]
-                    # Reemplazamos secuencias de escape básicas
-                    val = val.replace('\\n', '\n').replace('\\"', '"').replace('\\t', '\t')
-                    return val
-                return ""
+        # Extraer usando etiquetas XML
+        import re
+        
+        def extraer_etiqueta(etiqueta, texto_completo):
+            # Busca <ETIQUETA> contenido </ETIQUETA> o hasta el final si se truncó
+            patron = f"<{etiqueta}>(.*?)(?:</{etiqueta}>|$)"
+            match = re.search(patron, texto_completo, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            return ""
 
-            rf_val = extraer_campo("resultado_final", texto)
-            res_val = extraer_campo("resumen", texto)
-            
-            if rf_val or res_val:
-                log.info("Se lograron recuperar los campos del JSON truncado.")
-                resultado = {
-                    "resultado_final": rf_val or "No se pudo generar.",
-                    "resumen": res_val or "No se pudo generar.",
-                    "transcripcion": ""
-                }
+        rf_val = extraer_etiqueta("RESULTADO_FINAL", texto)
+        res_val = extraer_etiqueta("RESUMEN", texto)
+        
+        if not rf_val and not res_val:
+            log.warning(f"No se encontraron etiquetas XML. Fallback a texto crudo. Longitud: {len(texto)}")
+            resultado = {
+                "transcripcion": "",
+                "resumen": "",
+                "resultado_final": texto
+            }
+        else:
+            if content['candidates'][0].get('finishReason') == 'MAX_TOKENS':
+                log.warning(f"Respuesta truncada por MAX_TOKENS (longitud {len(texto)}).")
             else:
-                log.warning("No se pudieron extraer los campos con regex. Fallback a texto crudo.")
-                resultado = {
-                    "transcripcion": "",
-                    "resumen": "",
-                    "resultado_final": texto
-                }
+                log.info(f"Longitud de salida: {len(texto)} caracteres.")
 
-        log.info(f"✅ Resumen generado y validado como JSON.")
-        # Aseguramos que la transcripción vaya vacía por ahora
-        resultado["transcripcion"] = ""
+            log.info("✅ Resumen generado y validado con etiquetas XML.")
+            resultado = {
+                "resultado_final": rf_val or "No se pudo generar.",
+                "resumen": res_val or "No se pudo generar.",
+                "transcripcion": ""
+            }
+
         return resultado
 
     finally:
