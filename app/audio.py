@@ -71,12 +71,29 @@ def concatenate_fragments(reunion_id: int) -> Path:
     log.info(f"[reunion {reunion_id}] Concatenando {len(fragments)} fragmentos de forma binaria...")
 
     final_path = d / 'final.webm'
+    final_temp_path = d / 'final_temp.webm'
     
     # Concatenación binaria simple
-    with open(final_path, 'wb') as outfile:
+    with open(final_temp_path, 'wb') as outfile:
         for frag in fragments:
             with open(frag, 'rb') as infile:
                 outfile.write(infile.read())
+
+    # Reparar metadatos (duración) con ffmpeg para que sea seekable
+    import subprocess
+    try:
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', str(final_temp_path), '-c', 'copy', str(final_path)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        final_temp_path.unlink() # Eliminar temporal
+    except Exception as e:
+        log.error(f"[reunion {reunion_id}] Error al reparar WebM con ffmpeg, usando concatenado binario: {e}")
+        # Fallback a concatenado binario
+        if final_temp_path.exists():
+            final_temp_path.rename(final_path)
 
     size_mb = final_path.stat().st_size / (1024 * 1024)
     log.info(f"[reunion {reunion_id}] Audio concatenado: {final_path} ({size_mb:.1f} MB)")
