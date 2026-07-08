@@ -31,7 +31,7 @@ _SUPPORTED_AUDIO_MIMES = {
 }
 
 # ── System prompt ─────────────────────────────────────────────
-_PROMPT_RESULTADO_FINAL = """\
+_SYSTEM_PROMPT_TEMPLATE = """\
 Eres un asistente corporativo experto en análisis y documentación de reuniones de negocio.
 Has recibido el audio completo de una reunión corporativa de Batidos Pitaya, una cadena de \
 batidos y bebidas naturales en Nicaragua.
@@ -40,6 +40,12 @@ Contexto de la reunión:
 - Título: {titulo}
 - Descripción: {descripcion}
 
+Tu tarea tiene DOS partes, y debes devolver el resultado obligatoriamente usando exactamente \
+estas dos etiquetas delimitadoras: <RESULTADO_FINAL> y <RESUMEN>.
+
+─────────────────────────────────────────────────────
+ETIQUETA 1: <RESULTADO_FINAL>
+─────────────────────────────────────────────────────
 Basándote en el audio, genera un resumen ejecutivo corporativo en formato Markdown \
 usando EXACTAMENTE estos encabezados:
   ## Decisiones Tomadas
@@ -51,21 +57,24 @@ En "Tareas Asignadas", indica el responsable si se menciona.
 En "Puntos de Seguimiento", incluye fechas límite, riesgos y pendientes.
 Si alguna sección no aplica, indícalo (ej: "No se identificaron tareas específicas.").
 Usa texto limpio, profesional. NO inventes información que no esté en el audio.
-Responde únicamente con el resumen ejecutivo solicitado.
-"""
 
-_PROMPT_RESUMEN = """\
-Eres un asistente corporativo experto en análisis y documentación de reuniones de negocio.
-Has recibido el audio completo de una reunión corporativa de Batidos Pitaya, una cadena de \
-batidos y bebidas naturales en Nicaragua.
+─────────────────────────────────────────────────────
+ETIQUETA 2: <RESUMEN>
+─────────────────────────────────────────────────────
+Un resumen general de toda la reunión, documentando detalladamente todo lo que se habló, \
+discutió y acordó, sin títulos ni formato corporativo adicional.
 
-Contexto de la reunión:
-- Título: {titulo}
-- Descripción: {descripcion}
-
-Basándote en el audio, genera un resumen general de toda la reunión, documentando \
-detalladamente todo lo que se habló, discutió y acordó.
-Solo proporciona el texto del resumen general, sin títulos ni formato corporativo adicional.
+─────────────────────────────────────────────────────
+FORMATO DE RESPUESTA (OBLIGATORIO):
+─────────────────────────────────────────────────────
+Devuelve ÚNICAMENTE las dos etiquetas con su contenido, nada más. No uses bloques de código (```).
+Ejemplo:
+<RESULTADO_FINAL>
+## Decisiones Tomadas...
+</RESULTADO_FINAL>
+<RESUMEN>
+La reunión se centró en...
+</RESUMEN>
 """
 
 _TRANSCRIPTION_PROMPT_TEMPLATE = """\
@@ -211,40 +220,17 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
         titulo      = reunion_data.get('titulo', 'Reunión corporativa')
         descripcion = reunion_data.get('descripcion') or 'Sin descripción adicional'
 
-        # --- 1. Generar Resultado Final ---
-        log.info(f"🤖 Generando resultado final (resumen ejecutivo) con {modelo}...")
-        prompt_rf = _PROMPT_RESULTADO_FINAL.format(titulo=titulo, descripcion=descripcion)
-        payload_rf = {
-            'contents': [{
-                'role': 'user',
-                'parts': [
-                    {'text': prompt_rf},
-                    {'file_data': {'mime_type': mime_type, 'file_uri': file_uri}},
-                ],
-            }],
-            'generationConfig': {
-                'temperature': 0.1,
-                'maxOutputTokens': 8192,
-            },
-        }
-        
-        resp_rf = requests.post(
-            GEMINI_CONTENT_URL.format(model=modelo),
-            params={'key': api_key},
-            json=payload_rf,
-            timeout=300,
+        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
+            titulo=titulo,
+            descripcion=descripcion,
         )
-        resp_rf.raise_for_status()
-        texto_rf = resp_rf.json()['candidates'][0]['content']['parts'][0]['text']
-        
-        # --- 2. Generar Resumen General ---
-        log.info(f"🤖 Generando resumen general con {modelo}...")
-        prompt_res = _PROMPT_RESUMEN.format(titulo=titulo, descripcion=descripcion)
-        payload_res = {
+
+        log.info(f"🤖 Generando ambos resúmenes en una sola llamada con {modelo}...")
+        payload = {
             'contents': [{
                 'role': 'user',
                 'parts': [
-                    {'text': prompt_res},
+                    {'text': system_prompt},
                     {'file_data': {'mime_type': mime_type, 'file_uri': file_uri}},
                 ],
             }],
@@ -254,20 +240,46 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
             },
         }
 
-        resp_res = requests.post(
+        resp = requests.post(
             GEMINI_CONTENT_URL.format(model=modelo),
             params={'key': api_key},
-            json=payload_res,
+            json=payload,
             timeout=300,
         )
-        resp_res.raise_for_status()
-        texto_res = resp_res.json()['candidates'][0]['content']['parts'][0]['text']
+        resp.raise_for_status()
 
-        log.info("✅ Ambos resúmenes generados con éxito de manera individual.")
+        content = resp.json()
+        texto = content['candidates'][0]['content']['parts'][0]['text']
+
+        # Extraer usando etiquetas XML
+        import re
+        
+        def extraer_etiqueta(etiqueta, texto_completo):
+            # Busca <ETIQUETA> contenido </ETIQUETA> o hasta el final si se truncó
+            patron = f"<{etiqueta}>(.*?)(?:</{etiqueta}>|$)"
+            match = re.search(patron, texto_completo, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            return ""
+
+        rf_val = extraer_etiqueta("RESULTADO_FINAL", texto)
+        res_val = extraer_etiqueta("RESUMEN", texto)
+        
+        if not rf_val and not res_val:
+            log.warning(f"No se encontraron etiquetas XML. Fallback a texto crudo. Longitud: {len(texto)}")
+            rf_val = texto
+            res_val = ""
+        else:
+            if content['candidates'][0].get('finishReason') == 'MAX_TOKENS':
+                log.warning(f"Respuesta truncada por MAX_TOKENS (longitud {len(texto)}).")
+            else:
+                log.info(f"Longitud de salida: {len(texto)} caracteres.")
+
+            log.info("✅ Resumen generado y validado con etiquetas XML.")
         
         resultado = {
-            "resultado_final": texto_rf.strip() or "No se pudo generar.",
-            "resumen": texto_res.strip() or "No se pudo generar.",
+            "resultado_final": rf_val or "No se pudo generar.",
+            "resumen": res_val or "No se pudo generar.",
             "transcripcion": ""
         }
 
