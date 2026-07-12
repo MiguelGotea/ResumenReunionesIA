@@ -12,6 +12,77 @@ import requests
 import time
 from pathlib import Path
 
+TIPOS_REUNION_VALIDOS = {'general', 'iterativa', 'informativa', 'decision', 'brainstorming', 'nivel10'}
+
+_BLOQUE_RESOLUCION_TEMPORAL = """
+REGLA DE RESOLUCIÓN TEMPORAL:
+En esta reunión es posible que un mismo tema se haya discutido múltiples veces cambiando de estado.
+La versión y decisión que prevalece es la última que se menciona, anulando cualquier mención o
+acuerdo preliminar previo sobre el mismo asunto. Si el tema queda sin resolver al final, asúmelo así.
+"""
+
+_BLOQUE_ITERATIVA = """
+TIPO DE REUNIÓN: Iterativa / Refinamiento de Prototipo o Proceso.
+Las ideas se replantearon repetidamente. Narra la evolución de los temas más importantes (de X a Y)
+además de la conclusión final.
+"""
+
+_BLOQUE_INFORMATIVA = """
+TIPO DE REUNIÓN: Informativa / Reporte de Seguimiento.
+Distingue claramente entre decisiones ya tomadas previamente (reportadas) y nuevas decisiones tomadas
+"en vivo" durante la reunión, y prioriza resaltar cualquier riesgo o bloqueo mencionado.
+"""
+
+_BLOQUE_DECISION = """
+TIPO DE REUNIÓN: Toma de Decisión / Comité.
+Identifica explícitamente las opciones que se evaluaron, el argumento ganador y quién fue el responsable
+final de la decisión.
+"""
+
+_BLOQUE_BRAINSTORMING = """
+TIPO DE REUNIÓN: Brainstorming / Ideación Abierta.
+El objetivo fue la generación de ideas. No es necesario forzar "Decisiones Tomadas" si no las hay.
+Asegúrate de agrupar todas las ideas generadas por tema y señala cuáles obtuvieron mayor interés
+o tracción, sin inventar un cierre definitivo si no lo hubo.
+"""
+
+_BLOQUE_NIVEL10 = """
+TIPO DE REUNIÓN: Nivel 10 (Metodología EOS).
+Esta reunión tiene una estructura muy rígida. En el resumen, agrupa rigurosamente por los 7 bloques de agenda predefinidos.
+- En "Marcador", agrupa los KPIs por participante e indica si están dentro o fuera de objetivo si se menciona.
+- En "Issues Resueltos (IDS)", por cada issue tratado, indica el problema identificado, causa raíz, resolución acordada, responsable y fecha límite si existen.
+- En "Nuevos Pendientes", formato 'Quién hace qué para cuándo'. No aceptes tareas sin responsable si el audio lo menciona.
+Si algún bloque de la agenda no se cubrió en el audio, indícalo expresamente (ej: 'No se registró este bloque en el audio').
+"""
+
+_ENCABEZADOS_NIVEL10 = """\
+  ## Marcador (KPIs por Persona)
+  ## Titulares
+  ## Revisión de Rocas
+  ## Revisión de Pendientes de la Semana Anterior
+  ## Issues Resueltos (IDS)
+  ## Nuevos Pendientes (To-Dos)
+  ## Calificación de la Reunión\
+"""
+
+_ENCABEZADOS_DEFAULT = """\
+  ## Decisiones Tomadas
+  ## Tareas Asignadas
+  ## Acuerdos y Compromisos
+  ## Puntos de Seguimiento\
+"""
+
+_INSTRUCCIONES_DEFAULT = """\
+En "Tareas Asignadas", indica el responsable si se menciona.
+En "Puntos de Seguimiento", incluye fechas límite, riesgos y pendientes.
+Si alguna sección no aplica, indícalo (ej: "No se identificaron tareas específicas.").
+Usa texto limpio, profesional. NO inventes información que no esté en el audio.\
+"""
+
+_INSTRUCCIONES_NIVEL10 = """\
+Usa texto limpio, profesional. NO inventes información que no esté en el audio.\
+"""
+
 from .logger import get_logger
 
 log = get_logger('gemini_client')
@@ -40,6 +111,8 @@ Contexto de la reunión:
 - Título: {titulo}
 - Descripción: {descripcion}
 
+{bloque_dinamico}
+
 Tu tarea tiene DOS partes, y debes devolver el resultado obligatoriamente usando exactamente \
 estas dos etiquetas delimitadoras: <RESULTADO_FINAL> y <RESUMEN>.
 
@@ -47,16 +120,10 @@ estas dos etiquetas delimitadoras: <RESULTADO_FINAL> y <RESUMEN>.
 ETIQUETA 1: <RESULTADO_FINAL>
 ─────────────────────────────────────────────────────
 Basándote en el audio, genera un resumen ejecutivo corporativo en formato Markdown \
-usando EXACTAMENTE estos encabezados:
-  ## Decisiones Tomadas
-  ## Tareas Asignadas
-  ## Acuerdos y Compromisos
-  ## Puntos de Seguimiento
+usando EXACTAMENTE estos encabezados (ni más ni menos, mantén exactamente estos nombres):
+{encabezados}
 
-En "Tareas Asignadas", indica el responsable si se menciona.
-En "Puntos de Seguimiento", incluye fechas límite, riesgos y pendientes.
-Si alguna sección no aplica, indícalo (ej: "No se identificaron tareas específicas.").
-Usa texto limpio, profesional. NO inventes información que no esté en el audio.
+{instrucciones_post}
 
 ─────────────────────────────────────────────────────
 ETIQUETA 2: <RESUMEN>
@@ -241,10 +308,39 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
 
         titulo      = reunion_data.get('titulo', 'Reunión corporativa')
         descripcion = reunion_data.get('descripcion') or 'Sin descripción adicional'
+        tipo_reunion = reunion_data.get('tipo_reunion', 'general')
+
+        if tipo_reunion not in TIPOS_REUNION_VALIDOS:
+            log.warning(f"Tipo de reunión inválido o desconocido '{tipo_reunion}', haciendo fallback a 'general'")
+            tipo_reunion = 'general'
+
+        bloque_dinamico = ""
+        encabezados_usar = _ENCABEZADOS_DEFAULT
+        instrucciones_post_usar = _INSTRUCCIONES_DEFAULT
+        
+        # Bloque de resolución temporal a todos menos nivel10
+        if tipo_reunion != 'nivel10':
+            bloque_dinamico += _BLOQUE_RESOLUCION_TEMPORAL + "\n"
+        
+        if tipo_reunion == 'iterativa':
+            bloque_dinamico += _BLOQUE_ITERATIVA + "\n"
+        elif tipo_reunion == 'informativa':
+            bloque_dinamico += _BLOQUE_INFORMATIVA + "\n"
+        elif tipo_reunion == 'decision':
+            bloque_dinamico += _BLOQUE_DECISION + "\n"
+        elif tipo_reunion == 'brainstorming':
+            bloque_dinamico += _BLOQUE_BRAINSTORMING + "\n"
+        elif tipo_reunion == 'nivel10':
+            bloque_dinamico += _BLOQUE_NIVEL10 + "\n"
+            encabezados_usar = _ENCABEZADOS_NIVEL10
+            instrucciones_post_usar = _INSTRUCCIONES_NIVEL10
 
         system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
             titulo=titulo,
             descripcion=descripcion,
+            bloque_dinamico=bloque_dinamico,
+            encabezados=encabezados_usar,
+            instrucciones_post=instrucciones_post_usar,
         )
 
         log.info(f"🤖 Generando ambos resúmenes en una sola llamada con {modelo}...")
