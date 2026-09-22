@@ -21,6 +21,11 @@ _MIME_EXT = {
     'application/octet-stream': 'webm',  # fallback
 }
 
+# Formatos que requieren ffmpeg concat (archivos independientes con headers propios).
+# WebM de MediaRecorder del browser es un stream continuo → concatenación binaria directa.
+# M4A/MP4/AAC del reloj Android son archivos independientes con headers propios → ffmpeg concat.
+_FFMPEG_CONCAT_EXTS = {'mp4', 'm4a', 'aac', 'mp3', 'ogg'}
+
 
 def _reunion_dir(reunion_id: int) -> Path:
     d = Path(config.AUDIO_DIR) / str(reunion_id)
@@ -54,47 +59,94 @@ def get_fragment_count(reunion_id: int) -> int:
 
 def concatenate_fragments(reunion_id: int) -> Path:
     """
-    Concatena todos los fragmentos en orden.
-    Como los fragmentos provienen de MediaRecorder.start(60000), 
-    son una secuencia continua de bytes de un único archivo WebM.
-    Solo el primer chunk tiene los headers válidos.
-    Por lo tanto, la concatenación binaria directa es el método correcto.
-    Genera: AUDIO_DIR/<reunion_id>/final.webm
+    Concatena todos los fragmentos en orden y convierte a MP3.
+
+    Estrategia según el tipo de fragmento (detección automática por extensión):
+    - WebM (browser / MediaRecorder web): los chunks son un stream continuo,
+      el primer chunk incluye los headers de todo el archivo. Se concatenan
+      directamente en binario y luego ffmpeg convierte a MP3.
+    - M4A/MP4/AAC (Android nativo / reloj Wear OS): cada chunk es un archivo
+      MP4 independiente con sus propios headers moov/mdat. Se usa
+      `ffmpeg -f concat` para unirlos correctamente antes de convertir a MP3.
+
+    Genera: AUDIO_DIR/<reunion_id>/final.mp3
     """
+    import subprocess
+
     d = _reunion_dir(reunion_id)
 
     # Listar fragmentos en orden
     fragments = sorted(d.glob('chunk_*.*'))
     if not fragments:
-        raise RuntimeError(f"No hay fragmentos de audio para la reunión {reunion_id}")
+        raise RuntimeError(f"No hay fragmentos de audio para la reunion {reunion_id}")
 
-    log.info(f"[reunion {reunion_id}] Concatenando {len(fragments)} fragmentos de forma binaria...")
+    # Determinar estrategia por extension del primer fragmento
+    first_ext = fragments[0].suffix.lstrip('.').lower()
+    use_ffmpeg_concat = first_ext in _FFMPEG_CONCAT_EXTS
 
-    final_path = d / 'final.mp3'
-    final_temp_path = d / 'final_temp.webm'
-    
-    # Concatenación binaria simple
-    with open(final_temp_path, 'wb') as outfile:
-        for frag in fragments:
-            with open(frag, 'rb') as infile:
-                outfile.write(infile.read())
+    log.info(
+        f"[reunion {reunion_id}] Concatenando {len(fragments)} fragmentos "
+        f"(tipo={first_ext}, metodo={'ffmpeg-concat' if use_ffmpeg_concat else 'binario'})..."
+    )
 
-    # Convertir a MP3 con ffmpeg para garantizar soporte de barra de tiempo y compatibilidad
-    import subprocess
+    final_path      = d / 'final.mp3'
+    final_temp_path = d / f'final_temp.{first_ext}'
+
+    if use_ffmpeg_concat:
+        # ── ffmpeg concat para M4A/MP4/AAC (fragmentos independientes) ──────────
+        concat_list_path = d / 'concat_list.txt'
+        with open(concat_list_path, 'w') as f:
+            for frag in fragments:
+                escaped = str(frag).replace("'", "'\\''")
+                f.write(f"file '{escaped}'\n")
+
+        try:
+            subprocess.run(
+                [
+                    'ffmpeg', '-y',
+                    '-f', 'concat', '-safe', '0',
+                    '-i', str(concat_list_path),
+                    '-c', 'copy',
+                    str(final_temp_path),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            concat_list_path.unlink(missing_ok=True)
+        except Exception as e:
+            concat_list_path.unlink(missing_ok=True)
+            log.error(f"[reunion {reunion_id}] Error en ffmpeg concat: {e}")
+            raise RuntimeError(f"Error al concatenar fragmentos M4A con ffmpeg: {e}")
+
+    else:
+        # ── Concatenacion binaria para WebM (stream continuo del browser) ───────
+        with open(final_temp_path, 'wb') as outfile:
+            for frag in fragments:
+                with open(frag, 'rb') as infile:
+                    outfile.write(infile.read())
+
+    # ── Convertir resultado temporal a MP3 ───────────────────────────────────
     try:
         subprocess.run(
-            ['ffmpeg', '-y', '-i', str(final_temp_path), '-c:a', 'libmp3lame', '-b:a', '64k', '-ac', '1', '-ar', '16000', str(final_path)],
+            [
+                'ffmpeg', '-y',
+                '-i', str(final_temp_path),
+                '-c:a', 'libmp3lame', '-b:a', '64k', '-ac', '1', '-ar', '16000',
+                str(final_path),
+            ],
             check=True,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
         )
-        final_temp_path.unlink() # Eliminar temporal
+        final_temp_path.unlink(missing_ok=True)
     except Exception as e:
         log.error(f"[reunion {reunion_id}] Error al convertir a MP3 con ffmpeg: {e}")
-        # Fallback a concatenado binario en webm
-        final_path = d / 'final.webm'
+        # Fallback: conservar temporal sin conversion
         if final_temp_path.exists():
-            final_temp_path.rename(final_path)
+            final_path = final_temp_path
+        else:
+            final_path = d / 'final.webm'
 
     size_mb = final_path.stat().st_size / (1024 * 1024)
     log.info(f"[reunion {reunion_id}] Audio concatenado: {final_path} ({size_mb:.1f} MB)")
@@ -103,8 +155,8 @@ def concatenate_fragments(reunion_id: int) -> Path:
 
 def delete_audio(reunion_id: int) -> bool:
     """
-    Borra la carpeta completa de audio de una reunión.
-    Retorna True si se borró, False si no existía.
+    Borra la carpeta completa de audio de una reunion.
+    Retorna True si se borro, False si no existia.
     """
     d = Path(config.AUDIO_DIR) / str(reunion_id)
     if d.exists():
@@ -118,10 +170,10 @@ def delete_audio(reunion_id: int) -> bool:
 def get_audio_path(reunion_id: int) -> Path | None:
     """Retorna la ruta del archivo de audio final (mp3 o webm) si existe."""
     d = Path(config.AUDIO_DIR) / str(reunion_id)
-    
+
     p_mp3 = d / 'final.mp3'
     if p_mp3.exists():
         return p_mp3
-        
+
     p_webm = d / 'final.webm'
     return p_webm if p_webm.exists() else None
