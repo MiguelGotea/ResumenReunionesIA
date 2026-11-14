@@ -296,9 +296,8 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
         String con el resumen en formato Markdown
     """
     api_key = gemini_key_info['api_key']
-    # Usamos gemini-3.1-pro-preview — única herramienta en el sistema que usa modelo Pro.
-    # gemini-2.5-pro fue deprecado por Google para nuevas keys (AQ.).
-    modelo  = "gemini-3.1-pro-preview"
+    # Usamos gemini-2.5-pro
+    modelo  = "gemini-2.5-pro"
     mime_type = _detect_mime(audio_path)
 
     file_uri  = None
@@ -414,9 +413,8 @@ def generate_transcription(audio_path: Path, gemini_key_info: dict) -> str:
     Genera solo la transcripción del audio.
     """
     api_key = gemini_key_info['api_key']
-    # Usamos gemini-3.1-pro-preview — única herramienta en el sistema que usa modelo Pro.
-    # gemini-2.5-pro fue deprecado por Google para nuevas keys (AQ.).
-    modelo  = "gemini-3.1-pro-preview"
+    # Usamos gemini-2.5-pro
+    modelo  = "gemini-2.5-pro"
     mime_type = _detect_mime(audio_path)
 
     file_uri  = None
