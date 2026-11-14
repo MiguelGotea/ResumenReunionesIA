@@ -297,9 +297,9 @@ def generate_summary(audio_path: Path, reunion_data: dict, gemini_key_info: dict
     """
     api_key = gemini_key_info['api_key']
     # Usar el modelo que retorna la API (campo 'modelo' en obtener_key_gemini.php).
-    # gemini-2.5-pro requiere API key estándar (AIza...) con billing habilitado.
-    # Si la key es de tipo proxy (AQ...), usar gemini-2.5-flash hasta actualizar la key.
-    modelo  = gemini_key_info.get('modelo', 'gemini-2.5-flash')
+    # gemini-2.5-pro y gemini-2.5-flash están deprecated para nuevas keys.
+    # El modelo activo con keys AQ. es gemini-3.1-pro-preview.
+    modelo  = gemini_key_info.get('modelo', 'gemini-3.1-pro-preview')
     mime_type = _detect_mime(audio_path)
 
     file_uri  = None
@@ -416,9 +416,9 @@ def generate_transcription(audio_path: Path, gemini_key_info: dict) -> str:
     """
     api_key = gemini_key_info['api_key']
     # Usar el modelo que retorna la API (campo 'modelo' en obtener_key_gemini.php).
-    # gemini-2.5-pro requiere API key estándar (AIza...) con billing habilitado.
-    # Si la key es de tipo proxy (AQ...), usar gemini-2.5-flash hasta actualizar la key.
-    modelo  = gemini_key_info.get('modelo', 'gemini-2.5-flash')
+    # gemini-2.5-pro y gemini-2.5-flash están deprecated para nuevas keys.
+    # El modelo activo con keys AQ. es gemini-3.1-pro-preview.
+    modelo  = gemini_key_info.get('modelo', 'gemini-3.1-pro-preview')
     mime_type = _detect_mime(audio_path)
 
     file_uri  = None
